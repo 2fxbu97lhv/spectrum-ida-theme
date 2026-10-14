@@ -364,7 +364,7 @@ DockWidgetTitle[themeDetached="true"]
     margin-bottom: 0;
 }
 
-IDADockWidget[windowTitle="Output"] > DockWidgetTitle
+DockWidgetTitle[themeOutputTitle="true"]
 {
     min-height: 24px;
     max-height: 24px;

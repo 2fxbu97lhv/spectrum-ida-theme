@@ -231,9 +231,27 @@ def update_tab_icons(bar, enabled):
             widget.setFixedSize(bar.iconSize())
 
 
+def iter_ida_widgets(widget_type):
+    from PySide6 import QtWidgets
+
+    for widget in QtWidgets.QApplication.allWidgets():
+        view = ida_kernwin.PluginForm.QtWidgetToTWidget(widget)
+        if ida_kernwin.get_widget_type(view) == widget_type:
+            yield widget, view
+
+
 def update_title_buttons(enabled, window):
     from PySide6 import QtCore, QtWidgets
 
+    output_docks = set()
+    if enabled:
+        for widget, _ in iter_ida_widgets(ida_kernwin.BWN_OUTPUT):
+            parent = widget.parentWidget()
+            while parent is not None:
+                if parent.inherits("IDADockWidget"):
+                    output_docks.add(parent)
+                    break
+                parent = parent.parentWidget()
     bars = []
     for title in QtWidgets.QApplication.allWidgets():
         if title.inherits("DockTabBar"):
@@ -244,8 +262,10 @@ def update_title_buttons(enabled, window):
             continue
         detached = title.window() is not window
         state = detached if enabled else None
-        if title.property("themeDetached") != state:
+        output = title.inherits("DockWidgetTitle") and title.parentWidget() in output_docks
+        if title.property("themeDetached") != state or title.property("themeOutputTitle") != output:
             title.setProperty("themeDetached", state)
+            title.setProperty("themeOutputTitle", output)
             title.style().unpolish(title)
             title.style().polish(title)
             QtCore.QCoreApplication.sendEvent(title, QtCore.QEvent(QtCore.QEvent.Type.StyleChange))
@@ -287,18 +307,16 @@ def update_title_buttons(enabled, window):
                 label.setProperty("themeDockHintVisible", None)
         layout = title.layout()
         if layout is not None:
-            parent = title.parentWidget()
-            if parent is not None and parent.windowTitle() == "Output":
-                original = layout.property("themeOriginalOutputTitleMargins")
-                if enabled:
-                    if original is None:
-                        margins = layout.contentsMargins()
-                        original = [margins.left(), margins.top(), margins.right(), margins.bottom()]
-                        layout.setProperty("themeOriginalOutputTitleMargins", original)
-                    layout.setContentsMargins(original[0], 1, original[2], 1)
-                elif original is not None:
-                    layout.setContentsMargins(*original)
-                    layout.setProperty("themeOriginalOutputTitleMargins", None)
+            original = layout.property("themeOriginalOutputTitleMargins")
+            if output:
+                if original is None:
+                    margins = layout.contentsMargins()
+                    original = [margins.left(), margins.top(), margins.right(), margins.bottom()]
+                    layout.setProperty("themeOriginalOutputTitleMargins", original)
+                layout.setContentsMargins(original[0], 1, original[2], 1)
+            elif original is not None:
+                layout.setContentsMargins(*original)
+                layout.setProperty("themeOriginalOutputTitleMargins", None)
             layout.invalidate()
             layout.activate()
         if enabled and title.isVisible():
@@ -509,12 +527,8 @@ def create_pseudocode_hook(app):
                     ida_kernwin.refresh_custom_viewer(view)
 
         def update_open_views(self, enabled):
-            names = {widget.windowTitle() for widget in app.allWidgets()
-                     if widget.windowTitle().startswith('Pseudocode-')}
-            for name in names:
-                view = ida_kernwin.find_widget(name)
-                if view is not None:
-                    self.update_view(view, enabled)
+            for _, view in iter_ida_widgets(ida_kernwin.BWN_PSEUDOCODE):
+                self.update_view(view, enabled)
 
         def stop(self):
             self.unhook()
@@ -577,9 +591,10 @@ def create_watcher(window, restart):
                 self.schedule()
             if (isinstance(watched, QtWidgets.QWidget)
                     and (watched.inherits("DockWidgetTitle") or watched.inherits("DockAreaDragTitle")
-                         or watched.inherits("DockTab") or watched.inherits("DockTabBar"))
+                         or watched.inherits("DockTab") or watched.inherits("DockTabBar")
+                         or watched.inherits("IDADockWidget") or watched.inherits("DockSplitter"))
                     and event.type() in (QtCore.QEvent.Type.Resize, QtCore.QEvent.Type.LayoutRequest,
-                                         QtCore.QEvent.Type.Show)):
+                                         QtCore.QEvent.Type.Show, QtCore.QEvent.Type.ParentChange)):
                 self.title_alignment_requested = True
                 self.schedule()
             if not self.updating_sizing and event.type() in (
@@ -712,7 +727,7 @@ def create_watcher(window, restart):
                 self.refreshing = False
 
         def update_output(self, enabled):
-            for console in app.allWidgets():
+            for console, _ in iter_ida_widgets(ida_kernwin.BWN_OUTPUT):
                 if not console.inherits("ConsoleWidget"):
                     continue
                 detached = console.window() is not window
