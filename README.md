@@ -4,8 +4,12 @@ A theme for IDA, comes with a fixed ui and psuedo colouring.
 
 ## Preview
 
-![Disassembly](.images/disassembly.png)
-![Pseudocode](.images/psuedocode.png)
+<p>
+  <img src=".images/disassembly.png" alt="Disassembly" width="49%">
+  <img src=".images/psuedocode.png" alt="Pseudocode" width="49%">
+</p>
+
+![Window](.images/window.png)
 
 ## Installation
 
