@@ -656,9 +656,11 @@ IDAView
 
 IDADockWidget[windowTitle^="Pseudocode-"] CustomIDAMemo
 {
+    qproperty-line-fg-numlit-in-data: ${palette_constants};
     qproperty-line-fg-data-xref-to-tail: ${palette_constants};
     qproperty-line-fg-punctuation: ${palette_text};
     qproperty-line-fg-macro: ${palette_types};
+    qproperty-line-fg-asm-directive: ${palette_types};
     qproperty-line-fg-demangled-name: ${palette_functions};
     qproperty-line-fg-register-name: ${palette_text};
     qproperty-line-fg-libfunc: ${palette_text};

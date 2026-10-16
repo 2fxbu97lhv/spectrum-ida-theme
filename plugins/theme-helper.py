@@ -410,6 +410,8 @@ def color_type_tokens(line, is_type, enabled, stack):
 
     type_roles = (ida_lines.SCOLOR_HIDNAME, ida_lines.SCOLOR_REG)
     type_color = ida_lines.SCOLOR_MACRO
+    type_colors = dict(zip(type_roles, (type_color, ida_lines.SCOLOR_ASMDIR)))
+    original_roles = {color: role for role, color in type_colors.items()}
     tokens = re.finditer(r'\x01\([0-9a-fA-F]{' + str(ida_lines.COLOR_ADDR_SIZE)
                          + r'}|\x03.|\x01.|\x02.|[^\x01-\x03]+', line, re.S)
     output = []
@@ -418,12 +420,15 @@ def color_type_tokens(line, is_type, enabled, stack):
         if text.startswith('\x01(') or text.startswith('\x03'):
             output.append(text)
         elif text.startswith('\x01'):
-            inserted = text[1] == type_color and stack and stack[-1] in type_roles
-            stack.append(text[1])
+            inserted = text[1] == type_color and bool(stack) and stack[-1] in type_roles
+            role = text[1] if inserted else original_roles.get(text[1], text[1])
+            stack.append(role)
             if not inserted:
-                output.append(text)
+                output.append('\x01' + role)
         elif text.startswith('\x02'):
             role = text[1]
+            if role not in stack:
+                role = original_roles.get(role, role)
             if role not in stack:
                 output.append(text)
                 continue
@@ -431,16 +436,21 @@ def color_type_tokens(line, is_type, enabled, stack):
             inserted = role == type_color and index > 0 and stack[index - 1] in type_roles
             del stack[index:]
             if not inserted:
-                output.append(text)
+                output.append('\x02' + role)
         else:
             in_type = stack and (stack[-1] in type_roles
                                   or (stack[-1] == type_color and len(stack) > 1 and stack[-2] in type_roles))
             if enabled and in_type:
+                role = stack[-1] if stack[-1] in type_roles else stack[-2]
+                color = type_colors[role]
                 text = re.sub(r'[A-Za-z_$][\w$]*(?:::[A-Za-z_$][\w$]*)*',
-                              lambda m: '\x01' + type_color + m[0] + '\x02' + type_color
+                              lambda m: '\x02' + role + '\x01' + color + m[0]
+                              + '\x02' + color + '\x01' + role
                               if is_type(m[0]) else m[0], text)
             output.append(text)
-    return ''.join(output)
+    roles = '[' + re.escape(''.join(type_roles)) + ']'
+    result = re.sub(r'\x01(' + roles + r')\x02\1', '', ''.join(output))
+    return re.sub(r'\x02(' + roles + r')\x01\1', '', result)
 
 
 def type_predicate(cfunc):
@@ -467,17 +477,22 @@ def color_number_tokens(line, enabled):
 
     keyword_on = '\x01' + ida_lines.SCOLOR_KEYWORD
     keyword_off = '\x02' + ida_lines.SCOLOR_KEYWORD
-    number_on = '\x01' + ida_lines.SCOLOR_NUMBER
-    number_off = '\x02' + ida_lines.SCOLOR_NUMBER
-    line = re.sub(re.escape(keyword_on + number_on) + r'([^\x01\x02]*)'
-                  + re.escape(number_off + keyword_off),
-                  lambda m: keyword_on + m[1] + keyword_off, line)
+    for role in (ida_lines.SCOLOR_NUMBER, ida_lines.SCOLOR_DNUM):
+        number_on = '\x01' + role
+        number_off = '\x02' + role
+        line = re.sub(re.escape(keyword_on + number_on) + r'([^\x01\x02]*)'
+                      + re.escape(number_off + keyword_off),
+                      lambda m: keyword_on + m[1] + keyword_off, line)
+        line = re.sub(re.escape(number_on) + r'([^\x01\x02]*)' + re.escape(number_off),
+                      lambda m: keyword_on + m[1] + keyword_off, line)
     if not enabled:
         return line
+    number_on = '\x01' + ida_lines.SCOLOR_DNUM
+    number_off = '\x02' + ida_lines.SCOLOR_DNUM
     literal = re.compile(r'[+-]?(?:0x[0-9a-f]+|0b[01]+|(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?)'
                          r'(?:u(?:ll?|i64)?|ll?u?|i64|[fd])?', re.I)
     return re.sub(re.escape(keyword_on) + r'([^\x01\x02]*)' + re.escape(keyword_off),
-                  lambda m: keyword_on + number_on + m[1] + number_off + keyword_off
+                  lambda m: number_on + m[1] + number_off
                   if literal.fullmatch(m[1]) else m[0], line)
 
 
